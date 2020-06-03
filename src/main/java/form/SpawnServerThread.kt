@@ -1,4 +1,4 @@
-package server
+package form
 
 import java.io.IOException
 import java.net.DatagramPacket
@@ -47,7 +47,7 @@ class SpawnServerThread(private val listener: Listener) : Thread() {
     }
 
     private val randomFreePort: String?
-        private get() {
+        get() {
             var localPort: String? = null
             try {
                 ServerSocket(0).use { s -> localPort = s.localPort.toString() + "" }

@@ -1,11 +1,10 @@
 package form
 
-import server.MicroServer
-import server.SpawnServerThread
 import java.awt.*
 import java.awt.Color
 import java.awt.event.ActionEvent
 import java.awt.event.WindowEvent
+import java.io.File
 import java.io.IOException
 import java.net.URI
 import java.net.URISyntaxException
@@ -19,12 +18,13 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
     private val thread: SpawnServerThread = SpawnServerThread(this)
     private val scrollPane: JScrollPane
     private val panelScrollView: JPanel
-    private val serverList: MutableMap<Int, MicroServer> = mutableMapOf()
+    private val serverList: MutableMap<Int, Process> = mutableMapOf()
 
     override fun mobileConnected(name: String?, androidVersion: String?, SDKVersion: String?, port: String?) {
-        val microServer = MicroServer(port!!.toInt())
-        microServer.start()
-        this.serverList[microServer.port] = microServer
+        val pb = ProcessBuilder("myCommand", "myArg1", "myArg2")
+        pb.directory(File("myDir"))
+
+        this.serverList[port!!.toInt()] = pb.start()
 
         panelScrollView.add(MobileConnectedPanel(name))
         var panel = JPanel()
@@ -49,11 +49,16 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         panel.background = Color.decode("#121212")
         flowLayout = FlowLayout()
         panel.layout = flowLayout
-        val button = PCScannerButton("Eliminar", null, Color.decode("#5500cc"), Color.decode("#4a00b3"))
-        button.addActionListener {
-            this.serverList.remove(microServer.port)!!.delete()
+        val buttonDelete = PCScannerButton("Eliminar", null, Color.decode("#5500cc"), Color.decode("#4a00b3"))
+        buttonDelete.addActionListener {
+            this.serverList.remove(port.toInt())!!.destroy()
         }
-        panel.add(button)
+        panel.add(buttonDelete)
+        val buttonTest = PCScannerButton("Probar", null, Color.decode("#5500cc"), Color.decode("#4a00b3"))
+        buttonTest.addActionListener {
+            Desktop.getDesktop().browse(URI("http://localhost:$port/statics"))
+        }
+        panel.add(buttonTest)
         panelScrollView.add(panel)
 
         if (scrollPane.height < 410)

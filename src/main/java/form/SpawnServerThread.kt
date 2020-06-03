@@ -30,8 +30,8 @@ class SpawnServerThread(private val listener: Listener) : Thread() {
             try {
                 ds!!.receive(dp)
                 val localPort = randomFreePort
-                val data = String(dp.data, 0, dp.length).split(",".toRegex()).toTypedArray()
 
+                val data = String(dp.data, 0, dp.length).split(",".toRegex()).toTypedArray()
                 listener.mobileConnected(data[0], data[1], data[2], localPort)
                 dp = DatagramPacket(localPort!!.toByteArray(), localPort.length, dp.address, dp.port)
                 ds!!.send(dp)

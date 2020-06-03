@@ -21,10 +21,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
     private val serverList: MutableMap<Int, Process> = mutableMapOf()
 
     override fun mobileConnected(name: String?, androidVersion: String?, SDKVersion: String?, port: String?) {
-        val pb = ProcessBuilder("myCommand", "myArg1", "myArg2")
-        pb.directory(File("myDir"))
-
-        this.serverList[port!!.toInt()] = pb.start()
+        this.serverList[port!!.toInt()] = buildProcessExe("/binaries/app.exe", port).start()
 
         panelScrollView.add(MobileConnectedPanel(name))
         var panel = JPanel()
@@ -95,13 +92,20 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
                 }
             }
         }
+
+        fun buildProcessExe(resourcesPath: String, vararg arguments: String): ProcessBuilder {
+            val executable = javaClass.getResource(resourcesPath)
+            return ProcessBuilder(executable.file.replace("%20", " "), *arguments)
+        }
     }
 
     /**
      * Create the frame.
      */
     init {
+        buildProcessExe("/binaries/OpenHardwareMonitor/OpenHardwareMonitor.exe").start()
         thread.start()
+
         val primaryColor = Color.decode("#6200EE")
         val backgroundColor = Color.decode("#121212")
         var img = ImageIcon(javaClass.getResource("/icons/logo_icon.png")).image
@@ -159,6 +163,8 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         btnClose.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
         btnClose.addActionListener {
             thread.close()
+            Runtime.getRuntime().exec("taskkill /IM OpenHardwareMonitor.exe")
+            this.removeAllServers()
             dispatchEvent(WindowEvent(this@PCScannerFrame, WindowEvent.WINDOW_CLOSING))
         }
         panelButtonAction.add(btnClose)
@@ -269,5 +275,11 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         panelScrollView.background = backgroundColor
         scrollPane.setViewportView(panelScrollView)
         panelScrollView.layout = GridLayout(0, 4, 0, 0)
+    }
+
+    private fun removeAllServers(){
+        this.serverList.map {
+            it.value.destroy()
+        }
     }
 }

@@ -4,11 +4,13 @@ import java.awt.*
 import java.awt.Color
 import java.awt.event.ActionEvent
 import java.awt.event.WindowEvent
-import java.io.File
-import java.io.IOException
+import java.io.*
 import java.net.URI
 import java.net.URISyntaxException
+import java.net.URL
+import java.util.*
 import javax.swing.*
+import javax.swing.border.Border
 import javax.swing.border.EmptyBorder
 import javax.swing.plaf.basic.BasicScrollBarUI
 
@@ -21,45 +23,76 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
     private val serverList: MutableMap<Int, Process> = mutableMapOf()
 
     override fun mobileConnected(name: String?, androidVersion: String?, SDKVersion: String?, port: String?) {
-        this.serverList[port!!.toInt()] = buildProcessExe("/binaries/app.exe", port).start()
+        this.serverList[port!!.toInt()] = buildProcessExe(
+            "app.exe",
+            port
+        ).start()
 
-        panelScrollView.add(MobileConnectedPanel(name))
+        val p0 = panelScrollView.add(MobileConnectedPanel(name))
+
         var panel = JPanel()
         panel.background = Color.decode("#121212")
-        var flowLayout = FlowLayout()
+        var flowLayout = FlowLayout(FlowLayout.LEFT)
         panel.layout = flowLayout
         var label = JLabel("Versión de Android: $androidVersion SDK: $SDKVersion")
-
         label.foreground = Color.WHITE
         panel.add(label)
-        panelScrollView.add(panel)
+        val p1 = panelScrollView.add(panel)
+
         panel = JPanel()
         panel.background = Color.decode("#121212")
-        flowLayout = FlowLayout()
+        flowLayout = FlowLayout(FlowLayout.LEFT)
         panel.layout = flowLayout
         label = JLabel(port)
-
         label.foreground = Color.WHITE
         panel.add(label)
-        panelScrollView.add(panel)
+        val p2 = panelScrollView.add(panel)
+
         panel = JPanel()
         panel.background = Color.decode("#121212")
-        flowLayout = FlowLayout()
+        flowLayout = FlowLayout(FlowLayout.LEFT)
         panel.layout = flowLayout
-        val buttonDelete = PCScannerButton("Eliminar", null, Color.decode("#5500cc"), Color.decode("#4a00b3"))
-        buttonDelete.addActionListener {
-            this.serverList.remove(port.toInt())!!.destroy()
-        }
+        val buttonDelete = PCScannerButton(
+            "Eliminar",
+            null,
+            Color.decode("#6200EE"),
+            Color.decode("#5500cc"),
+            Color.decode("#4a00b3"),
+            true
+        )
         panel.add(buttonDelete)
-        val buttonTest = PCScannerButton("Probar", null, Color.decode("#5500cc"), Color.decode("#4a00b3"))
+
+        val buttonTest = PCScannerButton(
+            "Probar",
+            null,
+            Color.decode("#6200EE"),
+            Color.decode("#5500cc"),
+            Color.decode("#4a00b3"),
+            true
+        )
         buttonTest.addActionListener {
             Desktop.getDesktop().browse(URI("http://localhost:$port/statics"))
         }
         panel.add(buttonTest)
-        panelScrollView.add(panel)
+        val p3 = panelScrollView.add(panel)
+
+        buttonDelete.addActionListener {
+            destroyServerWindows(this.serverList.remove(port.toInt())!!.pid().toString())
+            panelScrollView.remove(p0)
+            panelScrollView.remove(p1)
+            panelScrollView.remove(p2)
+            panelScrollView.remove(p3)
+            panelScrollView.repaint()
+
+            if (scrollPane.height < 40)
+                scrollPane.setSize(scrollPane.width,40)
+            else
+                scrollPane.setSize(scrollPane.width, scrollPane.height - 25)
+            revalidate()
+        }
 
         if (scrollPane.height < 410)
-            scrollPane.setSize(scrollPane.width, scrollPane.height + 30)
+            scrollPane.setSize(scrollPane.width, scrollPane.height + 25)
         else
             scrollPane.setSize(scrollPane.width, 410)
 
@@ -72,6 +105,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
          *
          */
         private const val serialVersionUID = -4594975323325530738L
+        private val tempFiles = mutableMapOf<String, File>()
 
         /**
          * Launch the application.
@@ -93,17 +127,52 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             }
         }
 
-        fun buildProcessExe(resourcesPath: String, vararg arguments: String): ProcessBuilder {
-            val executable = javaClass.getResource(resourcesPath)
-            return ProcessBuilder(executable.file.replace("%20", " "), *arguments)
+        fun buildProcessExe(filename: String, vararg arguments: String): ProcessBuilder {
+
+            return ProcessBuilder(tempFiles[filename]!!.absolutePath, *arguments)
         }
+
+        fun extractBinariesToTemp() {
+            tempFiles.clear()
+            val binariesDirectory = javaClass.getResource("/binaries")
+            val files = extractAllFiles(File(binariesDirectory.toURI()))
+            for (f in files) {
+                val fileAbsoluteFile = f.absoluteFile.toString()
+                val resourcesPath = fileAbsoluteFile.substring(fileAbsoluteFile.indexOf("binaries") - 1).replace(File.separator, "/") //ODIO JAVA Y WINDOWS
+                val filename = resourcesPath.split('/').last()
+                val tempFile = File(System.getProperty("java.io.tmpdir") + filename)
+                if (!tempFile.exists())
+                    tempFile.createNewFile()
+                val sourceChannel = FileInputStream(f).channel
+                val destChannel = FileOutputStream(tempFile).channel
+                destChannel.transferFrom(sourceChannel, 0, sourceChannel.size())
+                destChannel.close()
+                println(tempFile.absoluteFile)
+                tempFiles[filename] = tempFile
+            }
+
+        }
+
+
+        private fun extractAllFiles(file: File): List<File> {
+            val files = mutableListOf<File>()
+            for (f in file.listFiles())
+                if (f.isFile)
+                    files.add(f)
+                else
+                    files.addAll(extractAllFiles(f))
+            return files
+        }
+
     }
 
     /**
      * Create the frame.
      */
     init {
-        buildProcessExe("/binaries/OpenHardwareMonitor/OpenHardwareMonitor.exe").start()
+        extractBinariesToTemp()
+        buildProcessExe("OpenHardwareMonitor.exe")
+            .start()
         thread.start()
 
         val primaryColor = Color.decode("#6200EE")
@@ -152,14 +221,21 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
 
         img = ImageIcon(javaClass.getResource("/icons/baseline_minimize_white_48dp.png")).image
             .getScaledInstance(16, 16, Image.SCALE_SMOOTH)
-        val btnMinimize: JButton = PCScannerButton("", ImageIcon(img), Color.decode("#5500cc"), Color.decode("#4a00b3"))
+        val btnMinimize: JButton = PCScannerButton(
+            "",
+            ImageIcon(img),
+            primaryColor,
+            Color.decode("#5500cc"),
+            Color.decode("#4a00b3")
+        )
         btnMinimize.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
         btnMinimize.addActionListener { this@PCScannerFrame.extendedState = Frame.ICONIFIED }
         panelButtonAction.add(btnMinimize)
 
         img = ImageIcon(javaClass.getResource("/icons/baseline_close_white_48dp.png")).image
             .getScaledInstance(16, 16, Image.SCALE_SMOOTH)
-        val btnClose: JButton = PCScannerButton("", ImageIcon(img), Color.RED, Color.decode("#ff33333"))
+        val btnClose: JButton =
+            PCScannerButton("", ImageIcon(img), Color.RED, Color.RED, Color.decode("#ff33333"))
         btnClose.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
         btnClose.addActionListener {
             thread.close()
@@ -175,7 +251,13 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         toolBar.setBounds(0, 24, 800, 16)
         contentPane.add(toolBar)
 
-        val btnOptions: JButton = PCScannerButton("Opciones", null, Color.decode("#5500cc"), Color.decode("#4a00b3"))
+        val btnOptions: JButton = PCScannerButton(
+            "Opciones",
+            null,
+            primaryColor,
+            Color.decode("#5500cc"),
+            Color.decode("#4a00b3")
+        )
         val popupMenuOptions = JPopupMenu()
         popupMenuOptions.isOpaque = true
         popupMenuOptions.background = primaryColor
@@ -199,7 +281,13 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         }
         toolBar.add(btnOptions)
 
-        val btnHelp: JButton = PCScannerButton("Ayuda", null, Color.decode("#5500cc"), Color.decode("#4a00b3"))
+        val btnHelp: JButton = PCScannerButton(
+            "Ayuda",
+            null,
+            primaryColor,
+            Color.decode("#5500cc"),
+            Color.decode("#4a00b3")
+        )
         btnHelp.addActionListener {
             if (Desktop.isDesktopSupported() && Desktop.getDesktop().isSupported(Desktop.Action.BROWSE)) {
                 try {
@@ -252,22 +340,27 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         scrollPane.setColumnHeaderView(panel)
         panel.layout = GridLayout(0, 4, 5, 5)
         val lblMobileName = JLabel("Nombre del m\u00F3vil")
-        lblMobileName.horizontalAlignment = SwingConstants.CENTER
+        val margin: Border = EmptyBorder(1, 4, 0, 0)
+        lblMobileName.border = margin
+        lblMobileName.horizontalAlignment = SwingConstants.LEFT
         lblMobileName.foreground = Color.WHITE
         panel.add(lblMobileName)
 
         val lblAndroid = JLabel("Android")
-        lblAndroid.horizontalAlignment = SwingConstants.CENTER
+        lblAndroid.border = margin
+        lblAndroid.horizontalAlignment = SwingConstants.LEFT
         lblAndroid.foreground = Color.WHITE
         panel.add(lblAndroid)
 
         val lblPortService = JLabel("Puerto del servicio")
-        lblPortService.horizontalAlignment = SwingConstants.CENTER
+        lblPortService.border = margin
+        lblPortService.horizontalAlignment = SwingConstants.LEFT
         lblPortService.foreground = Color.WHITE
         panel.add(lblPortService)
 
         val lblActions = JLabel("Opciones")
-        lblActions.horizontalAlignment = SwingConstants.CENTER
+        lblActions.border = margin
+        lblActions.horizontalAlignment = SwingConstants.LEFT
         lblActions.foreground = Color.WHITE
         panel.add(lblActions)
 
@@ -279,7 +372,11 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
 
     private fun removeAllServers(){
         this.serverList.map {
-            it.value.destroy()
+            destroyServerWindows(it.value.pid().toString())
         }
+    }
+
+    private fun destroyServerWindows(pid: String) {
+        Runtime.getRuntime().exec("TASKKILL /PID $pid /T /F")
     }
 }

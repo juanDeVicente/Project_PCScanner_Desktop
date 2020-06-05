@@ -1,6 +1,7 @@
 package form
 
 import java.awt.Color
+import java.awt.FlowLayout
 import java.awt.Image
 import javax.swing.ImageIcon
 import javax.swing.JLabel
@@ -17,10 +18,11 @@ class MobileConnectedPanel(mobileName: String?) : JPanel() {
      * Create the panel.
      */
     init {
+        layout = FlowLayout(FlowLayout.LEFT)
         background = Color.decode("#121212")
         var image: Image? = null
         val lblMobileImage = JLabel("")
-        lblMobileImage.horizontalAlignment = SwingConstants.CENTER
+        lblMobileImage.horizontalAlignment = SwingConstants.LEFT
         image = ImageIcon(MobileConnectedPanel::class.java.getResource("/icons/mobile_icon.png")).image
             .getScaledInstance(11, 17, Image.SCALE_SMOOTH)
         lblMobileImage.icon = ImageIcon(image)

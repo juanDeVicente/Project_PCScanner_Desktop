@@ -9,7 +9,7 @@ import java.net.SocketException
 
 class SpawnServerThread(private val listener: Listener) : Thread() {
     interface Listener {
-        fun mobileConnected(name: String?, androidVersion: String?, SDKVersion: String?, port: String?)
+        fun mobileConnected(name: String?, androidVersion: String?, SDKVersion: String?, ip: String?, port: String?): String
     }
 
     private var isStopping = false
@@ -28,12 +28,11 @@ class SpawnServerThread(private val listener: Listener) : Thread() {
             val buffer = ByteArray(1024)
             var dp = DatagramPacket(buffer, buffer.size)
             try {
+                var localPort = randomFreePort
                 ds!!.receive(dp)
-                val localPort = randomFreePort
-
                 val data = String(dp.data, 0, dp.length).split(",".toRegex()).toTypedArray()
-                listener.mobileConnected(data[0], data[1], data[2], localPort)
-                dp = DatagramPacket(localPort!!.toByteArray(), localPort.length, dp.address, dp.port)
+                localPort = listener.mobileConnected(data[0], data[1], data[2], dp.address.hostAddress, localPort)
+                dp = DatagramPacket(localPort.toByteArray(), localPort.length, dp.address, dp.port)
                 ds!!.send(dp)
             } catch (e: IOException) {
                 e.printStackTrace()

@@ -7,7 +7,7 @@ import java.net.ServerSocket
 import java.net.SocketException
 
 
-class SpawnServerThread(private val listener: Listener) : Thread() {
+class SpawnServerThread(private val listener: Listener, var excludedPorts: MutableList<String>) : Thread() {
     interface Listener {
         fun mobileConnected(name: String?, androidVersion: String?, SDKVersion: String?, ip: String?, port: String?): String
     }
@@ -29,6 +29,8 @@ class SpawnServerThread(private val listener: Listener) : Thread() {
             var dp = DatagramPacket(buffer, buffer.size)
             try {
                 var localPort = randomFreePort
+                while(excludedPorts.contains(localPort))
+                    localPort = randomFreePort
                 ds!!.receive(dp)
                 val data = String(dp.data, 0, dp.length).split(",".toRegex()).toTypedArray()
                 localPort = listener.mobileConnected(data[0], data[1], data[2], dp.address.hostAddress, localPort)

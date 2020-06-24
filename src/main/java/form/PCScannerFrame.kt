@@ -1,12 +1,14 @@
 package form
 
+import org.json.JSONArray
+import org.json.JSONObject
 import java.awt.*
 import java.awt.Color
 import java.awt.event.ActionEvent
+import java.awt.event.MouseEvent
+import java.awt.event.WindowAdapter
 import java.awt.event.WindowEvent
-import java.io.File
-import java.io.FileWriter
-import java.io.IOException
+import java.io.*
 import java.net.URI
 import java.net.URISyntaxException
 import java.nio.file.Files
@@ -20,14 +22,17 @@ import javax.swing.plaf.basic.BasicScrollBarUI
 
 class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
     private val contentPane: JPanel
-    private val thread: SpawnServerThread = SpawnServerThread(this)
     private val scrollPane: JScrollPane
     private val panelScrollView: JPanel
     private val serverList: MutableMap<String, Process> = mutableMapOf()
     private val ipPortMap: MutableMap<String, MutableList<String>> = mutableMapOf() // Esta es la lista que tengo que guardar para mantener los servidores
 
+    private val thread: SpawnServerThread = SpawnServerThread(this, mutableListOf())
+
     private lateinit var trayIcon: TrayIcon
     private lateinit var systemTray: SystemTray
+
+    private var startMinimized = true
 
     companion object {
         /**
@@ -43,8 +48,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             EventQueue.invokeLater {
                 try {
                     UIManager.setLookAndFeel(UIManager.getSystemLookAndFeelClassName())
-                    val frame = PCScannerFrame()
-                    frame.isVisible = true
+                    PCScannerFrame()
                 } catch (e: UnsupportedLookAndFeelException) {
                 } catch (e: ClassNotFoundException) {
                 } catch (e: InstantiationException) {
@@ -56,7 +60,6 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         }
 
         fun buildProcessExe(filename: String, vararg arguments: String): ProcessBuilder {
-
             return ProcessBuilder(File(filename).absolutePath, *arguments)
         }
 
@@ -105,7 +108,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         panelTitle.add(lblIcon)
 
         val lblTitle = JLabel("Project PCScanner - Desktop")
-        lblTitle.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
+        //lblTitle.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
         lblTitle.foreground = Color(255, 255, 255)
         panelTitle.add(lblTitle)
 
@@ -124,7 +127,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             Color.decode("#5500cc"),
             Color.decode("#4a00b3")
         )
-        btnMinimize.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
+        //btnMinimize.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
         btnMinimize.addActionListener {
             this@PCScannerFrame.extendedState = Frame.ICONIFIED
         }
@@ -134,9 +137,9 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             .getScaledInstance(16, 16, Image.SCALE_SMOOTH)
         val btnClose: JButton =
             PCScannerButton("", ImageIcon(img), Color.RED, Color.RED, Color.decode("#ff33333"))
-        btnClose.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
+        //btnClose.font = Font("Microsoft Sans Serif", Font.PLAIN, 12)
         btnClose.addActionListener {
-           this.closeApp()
+            this@PCScannerFrame.dispatchEvent(WindowEvent(this@PCScannerFrame, WindowEvent.WINDOW_CLOSING))
         }
         panelButtonAction.add(btnClose)
 
@@ -209,6 +212,8 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             panelScrollView.add(p)
         }
 
+        this.readAndApplyConfig()
+
         val toolBar = JToolBar()
         toolBar.background = primaryColor
         toolBar.isFloatable = false
@@ -227,15 +232,73 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         popupMenuOptions.background = primaryColor
         popupMenuOptions.foreground = primaryColor
 
-        val itemLimitPort = JMenuItem(object : AbstractAction("Limitar los puertos") {
+
+        val itemLimitPort = JMenuItem(object : AbstractAction("Excluir puertos") {
             override fun actionPerformed(e: ActionEvent) {
-                println("hola que tal")
+                var input: String?
+                val regex = Regex("^[0-9]*$")
+                do {
+                    input = JOptionPane.showInputDialog(
+                        this@PCScannerFrame,
+                        "Introduce el puerto a excluir.\nPuertos ya excluidos: ${this@PCScannerFrame.thread.excludedPorts}",
+                        "Añadir puerto",
+                        JOptionPane.QUESTION_MESSAGE
+                    )
+                    if (input == null) //El user ha pulsado cancelar
+                        break
+                    input.trim()
+
+                    if (input == "" || !input.matches(regex))
+                    {
+                        if (isWindows())
+                            doWindowsSound()
+                        JOptionPane.showMessageDialog(
+                            this@PCScannerFrame,
+                            "Parece que el puerto introducido no es válido",
+                            "Error de puerto",
+                            JOptionPane.ERROR_MESSAGE
+                        )
+                    }
+                    else if (this@PCScannerFrame.thread.excludedPorts.contains(input))
+                    {
+                        if (isWindows())
+                            doWindowsSound()
+                        JOptionPane.showMessageDialog(
+                            this@PCScannerFrame,
+                            "Parece que el puerto introducido ya ha sido añadido",
+                            "Error de puerto",
+                            JOptionPane.ERROR_MESSAGE
+                        )
+                    }
+                    else
+                        this@PCScannerFrame.thread.excludedPorts.add(input)
+                } while (input == "" || !input!!.matches(regex)) //Lo de que no vuelva a saltar el dialog cuando se introduce un puerto ya introducido es adrede
             }
         })
         itemLimitPort.isOpaque = true
         itemLimitPort.background = primaryColor
         itemLimitPort.foreground = Color.WHITE
         popupMenuOptions.add(itemLimitPort)
+
+        val itemDeleteLimitPort = JMenuItem(object : AbstractAction("Eliminar limitación de puerto") {
+            override fun actionPerformed(e: ActionEvent) {
+                val port = JOptionPane.showInputDialog(
+                    this@PCScannerFrame,
+                    "Escoge el puerto a desexcluir",
+                    "Desexcluir puerto",
+                    JOptionPane.QUESTION_MESSAGE,
+                    null,
+                    this@PCScannerFrame.thread.excludedPorts.toTypedArray(),
+                    this@PCScannerFrame.thread.excludedPorts[0]
+                )
+                if (port != null)
+                    this@PCScannerFrame.thread.excludedPorts.remove(port)
+            }
+        })
+        itemDeleteLimitPort.isOpaque = true
+        itemDeleteLimitPort.background = primaryColor
+        itemDeleteLimitPort.foreground = Color.WHITE
+        popupMenuOptions.add(itemDeleteLimitPort)
 
         val itemDeleteServers = JMenuItem(object : AbstractAction("Eliminar todos los servidores") {
             override fun actionPerformed(e: ActionEvent) {
@@ -277,7 +340,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             override fun actionPerformed(e: ActionEvent) {
                 val directory = File("serverOutput")
                 if (Files.exists(directory.toPath()))
-                    for (file in directory.listFiles()) //No se espera tener recursividad asi que no hace falta eliminar los subdirecttorios
+                    for (file in directory.listFiles()!!) //No se espera tener recursividad asi que no hace falta eliminar los subdirecttorios
                         if (!file.isDirectory)
                             file.delete()
                 if (isWindows())
@@ -300,6 +363,27 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
                 btnOptions.y + btnOptions.height
             )
         }
+
+        val itemStartMinimized = object: JCheckBoxMenuItem("Lanzar la aplicación minimizada") {
+            override fun processMouseEvent(evt: MouseEvent) {
+                if (evt.id == MouseEvent.MOUSE_RELEASED && contains(evt.point)) {
+                    doClick()
+                    isArmed = true
+                } else {
+                    super.processMouseEvent(evt)
+                }
+            }
+        }
+        itemStartMinimized.isOpaque = true
+        itemStartMinimized.background = primaryColor
+        itemStartMinimized.foreground = Color.WHITE
+        itemStartMinimized.addItemListener {
+            this.startMinimized = itemStartMinimized.isSelected
+        }
+
+        itemStartMinimized.isSelected = this.startMinimized
+        popupMenuOptions.add(itemStartMinimized)
+
         toolBar.add(btnOptions)
 
         val btnHelp: JButton = PCScannerButton(
@@ -332,9 +416,59 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             systemTray = SystemTray.getSystemTray() //Tengo que comprobar que el system tray esta habilitado antes de asignarlo
             img = Toolkit.getDefaultToolkit().getImage(javaClass.getResource("/icons/logo_icon.png"))
             val popup = PopupMenu()
-            var item = MenuItem("Cerrar")
+            var item = MenuItem("Eliminar todos los servidores")
             item.addActionListener {
-                this@PCScannerFrame.closeApp()
+                if (this@PCScannerFrame.serverList.isNotEmpty()) {
+                    this@PCScannerFrame.removeAllServers()
+                    this@PCScannerFrame.panelScrollView.removeAll()
+                    for (i in 0 until 4 * 12) {
+                        val p = JPanel()
+                        p.background = backgroundColor
+                        this@PCScannerFrame.panelScrollView.add(p)
+                    }
+                    this@PCScannerFrame.panelScrollView.repaint()
+                    this@PCScannerFrame.revalidate()
+                    if (isWindows())
+                        doWindowsSound()
+                    JOptionPane.showMessageDialog(
+                        this@PCScannerFrame,
+                        "¡Los servidores han sido borrados correctamente!"
+                    )
+                }
+                else {
+                    if (isWindows())
+                        doWindowsSound()
+                    JOptionPane.showMessageDialog(
+                        this@PCScannerFrame,
+                        "Parece que no hay servidores lanzados",
+                        "No hay servidores",
+                        JOptionPane.ERROR_MESSAGE
+                    )
+                }
+            }
+            popup.add(item)
+
+            item = MenuItem("Eliminar todos los outputs de los servidores")
+            item.addActionListener {
+                val directory = File("serverOutput")
+                if (Files.exists(directory.toPath()))
+                    for (file in directory.listFiles()!!) //No se espera tener recursividad asi que no hace falta eliminar los subdirectorios
+                        if (!file.isDirectory)
+                            file.delete()
+                if (isWindows())
+                    doWindowsSound()
+                JOptionPane.showMessageDialog(
+                    this@PCScannerFrame,
+                    "¡Todos los output han sido borrados correctamente!"
+                )
+            }
+            popup.add(item)
+
+            popup.addSeparator()
+
+            item = MenuItem("Cerrar")
+            item.addActionListener {
+                this@PCScannerFrame.dispatchEvent(WindowEvent(this@PCScannerFrame, WindowEvent.WINDOW_CLOSING))
             }
             popup.add(item)
 
@@ -345,7 +479,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             }
             popup.add(item)
 
-            trayIcon = TrayIcon(img, "Porject PCScanner Desktop", popup)
+            trayIcon = TrayIcon(img, "Project PCScanner Desktop", popup)
             trayIcon.isImageAutoSize = true
             trayIcon.addActionListener {
                 this@PCScannerFrame.isVisible = true
@@ -364,7 +498,20 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
                     this@PCScannerFrame.isVisible = true
                 }
             }
+            if (this.startMinimized)
+            {
+                systemTray.add(trayIcon)
+                this.isVisible = false
+                this.extendedState = Frame.ICONIFIED
+            }
+            else
+                this.isVisible = true
         }
+        this.addWindowListener(object: WindowAdapter(){
+            override fun windowClosing(e: WindowEvent?) {
+                this@PCScannerFrame.closeApp()
+            }
+        })
     }
 
     override fun mobileConnected(name: String?, androidVersion: String?, SDKVersion: String?, ip: String?, port: String?): String {
@@ -431,12 +578,13 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
 
         buttonDelete.addActionListener {
             destroyServerWindows(this.serverList.remove(ip)!!.pid().toString())
+            this.ipPortMap.remove(ip)
+
             panelScrollView.remove(p0)
             panelScrollView.remove(p1)
             panelScrollView.remove(p2)
             panelScrollView.remove(p3)
             panelScrollView.repaint()
-
 
             if (serverList.size < 12 ) {
                 for (i in 0 until 4)
@@ -464,42 +612,96 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
     }
 
     private fun removeAllServers(){
+        val sdf = SimpleDateFormat("yyyy-MM-dd-hh-mm-ss")
+        val currentDate = sdf.format(Date())
         this.serverList.map {
             destroyServerWindows(it.value.pid().toString())
+            val fw = FileWriter("serverOutput/${currentDate}_${it.key}.txt")
+            fw.write(String(it.value.inputStream.readAllBytes()))
+            fw.close()
         }
         this.serverList.clear()
     }
-
     private fun destroyServerWindows(pid: String) {
         Runtime.getRuntime().exec("TASKKILL /PID $pid /T /F")
     }
 
-    private fun writeOutputServerToFile() {
-        val sdf = SimpleDateFormat("yyyy-MM-dd-hh-mm-ss")
-        val currentDate = sdf.format(Date())
 
-        for (i in this.serverList){
-            val f = File("serverOutput")
-            if (Files.notExists(f.toPath()))
-                f.mkdir()
-            val fw = FileWriter("serverOutput/${currentDate}_${i.key}.txt")
-            fw.write(String(i.value.inputStream.readAllBytes()))
-            fw.close()
-        }
-    }
-
-    private fun doWindowsSound()
-    {
+    private fun doWindowsSound() {
         val runnable = Toolkit.getDefaultToolkit().getDesktopProperty("win.sound.exclamation") as Runnable
         runnable.run()
     }
 
-    private fun closeApp()
-    {
+    private fun closeApp() {
         thread.close()
-        Runtime.getRuntime().exec("taskkill /IM OpenHardwareMonitor.exe")
         this.removeAllServers()
-        this.writeOutputServerToFile()
-        dispatchEvent(WindowEvent(this, WindowEvent.WINDOW_CLOSING))
+        writeConfig()
+    }
+
+    private fun writeConfig() {
+        val obj = JSONObject()
+        obj.put("startMinimized", this.startMinimized)
+        val serversArray = JSONArray()
+        for (item in ipPortMap)
+        {
+            val serverObj = JSONObject()
+            serverObj.put("ip", item.key)
+            serverObj.put("port", item.value[0])
+            serverObj.put("name", item.value[1])
+            serverObj.put("version", item.value[2])
+            serverObj.put("sdkVersion", item.value[3])
+            serversArray.put(serverObj)
+        }
+        obj.put("servers", serversArray)
+        val excludedPorts = JSONArray(this.thread.excludedPorts)
+        obj.put("excludedPorts", excludedPorts)
+
+        val f = File("./config.json")
+        if (!f.exists())
+            f.createNewFile()
+        val fw = FileWriter(f)
+
+        try {
+            fw.write(obj.toString(2))
+        }
+        catch (e: IOException) {
+            e.printStackTrace()
+        }
+        catch (e: java.lang.Exception) {
+            e.printStackTrace()
+        }
+        finally {
+            try {
+                fw.flush()
+                fw.close()
+            }
+            catch (e: IOException) {
+                e.printStackTrace()
+            }
+        }
+    }
+
+    private fun readAndApplyConfig() {
+        val f = File("./config.json")
+        if (!f.exists())
+            return
+        try {
+            FileReader(f).use { reader ->
+                val obj = JSONObject(reader.readText())
+                this.startMinimized = obj.get("startMinimized") as Boolean
+                for (item in obj.getJSONArray("servers")) {
+                    val serverObj = item as JSONObject
+                    this.mobileConnected(serverObj.getString("name"), serverObj.getString("version"), serverObj.getString("sdkVersion"), serverObj.getString("ip"), serverObj.getString("port"))
+                }
+                for (item in obj.getJSONArray("excludedPorts")) {
+                    val port = item as String
+                    this.thread.excludedPorts.add(port)
+                }
+            }
+        } catch (e: FileNotFoundException) {
+            e.printStackTrace()
+        } catch (e: IOException) {
+            e.printStackTrace()
+        }
     }
 }

@@ -11,12 +11,15 @@ import java.awt.event.WindowEvent
 import java.io.*
 import java.net.URI
 import java.net.URISyntaxException
+import java.nio.charset.StandardCharsets
 import java.nio.file.Files
+import java.nio.file.Paths
 import java.text.SimpleDateFormat
 import java.util.*
 import javax.swing.*
 import javax.swing.border.Border
 import javax.swing.border.EmptyBorder
+import javax.swing.filechooser.FileNameExtensionFilter
 import javax.swing.plaf.basic.BasicScrollBarUI
 
 
@@ -82,7 +85,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         isUndecorated = true
         isResizable = false
         isLocationByPlatform = true
-        title = "Project PCScanner Desktop"
+        title = "Project PC Scanner Desktop"
         defaultCloseOperation = EXIT_ON_CLOSE
 
         setSize(800, 440)
@@ -282,17 +285,30 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
 
         val itemDeleteLimitPort = JMenuItem(object : AbstractAction("Eliminar limitación de puerto") {
             override fun actionPerformed(e: ActionEvent) {
-                val port = JOptionPane.showInputDialog(
-                    this@PCScannerFrame,
-                    "Escoge el puerto a desexcluir",
-                    "Desexcluir puerto",
-                    JOptionPane.QUESTION_MESSAGE,
-                    null,
-                    this@PCScannerFrame.thread.excludedPorts.toTypedArray(),
-                    this@PCScannerFrame.thread.excludedPorts[0]
-                )
-                if (port != null)
-                    this@PCScannerFrame.thread.excludedPorts.remove(port)
+                if (this@PCScannerFrame.thread.excludedPorts.size > 0) {
+                    val port = JOptionPane.showInputDialog(
+                        this@PCScannerFrame,
+                        "Escoge el puerto a desexcluir",
+                        "Desexcluir puerto",
+                        JOptionPane.QUESTION_MESSAGE,
+                        null,
+                        this@PCScannerFrame.thread.excludedPorts.toTypedArray(),
+                        this@PCScannerFrame.thread.excludedPorts[0]
+                    )
+                    if (port != null)
+                        this@PCScannerFrame.thread.excludedPorts.remove(port)
+                }
+                else
+                {
+                    if (isWindows())
+                        doWindowsSound()
+                    JOptionPane.showMessageDialog(
+                        this@PCScannerFrame,
+                        "Parece que no hay puertos excluidos",
+                        "No hay puertos excluidos",
+                        JOptionPane.ERROR_MESSAGE
+                    )
+                }
             }
         })
         itemDeleteLimitPort.isOpaque = true
@@ -316,7 +332,9 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
                         doWindowsSound()
                     JOptionPane.showMessageDialog(
                         this@PCScannerFrame,
-                        "¡Los servidores han sido borrados correctamente!"
+                        "¡Los servidores han sido borrados correctamente!",
+                        "Servidores eliminados",
+                        JOptionPane.INFORMATION_MESSAGE
                     )
                 }
                 else {
@@ -336,7 +354,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         itemDeleteServers.foreground = Color.WHITE
         popupMenuOptions.add(itemDeleteServers)
 
-        val itemDeleteOutputs = JMenuItem(object : AbstractAction("Eliminar todos los output de los servers") {
+        val itemDeleteOutputs = JMenuItem(object : AbstractAction("Eliminar todos los output de los servidores") {
             override fun actionPerformed(e: ActionEvent) {
                 val directory = File("serverOutput")
                 if (Files.exists(directory.toPath()))
@@ -347,7 +365,9 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
                     doWindowsSound()
                 JOptionPane.showMessageDialog(
                     this@PCScannerFrame,
-                    "¡Todos los output han sido borrados correctamente!"
+                    "¡Todos los output han sido borrados correctamente!",
+                    "Outputs borrados",
+                    JOptionPane.INFORMATION_MESSAGE
                 )
             }
         })
@@ -363,6 +383,72 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
                 btnOptions.y + btnOptions.height
             )
         }
+
+        val itemAddProgram = JMenuItem(object : AbstractAction("Añadir un programa"){
+            override fun actionPerformed(e: ActionEvent?) {
+                val buttonFileChooser = JButton("Selecionar ejecutable...")
+                val chooser = JFileChooser()
+                buttonFileChooser.addActionListener {
+                    val filter = FileNameExtensionFilter("Executables", "exe")
+                    chooser.fileFilter = filter
+                    chooser.isAcceptAllFileFilterUsed = false
+                    val returnVal = chooser.showOpenDialog(parent)
+                    if (returnVal == JFileChooser.APPROVE_OPTION)
+                        buttonFileChooser.text = chooser.selectedFile.name
+                }
+                val nameTextField = JTextField()
+                val argumentsTextField = JTextField()
+
+                val p = JPanel()
+                p.layout = GridLayout(0, 1, 10, 10)
+                p.add(buttonFileChooser)
+                p.add(nameTextField)
+                p.add(argumentsTextField)
+
+                val result = JOptionPane.showConfirmDialog(null, p, "Añadir nuevo programa", JOptionPane.OK_CANCEL_OPTION)
+                if (result == JOptionPane.OK_OPTION) {
+                    if (chooser.selectedFile == null) {
+                        if (isWindows())
+                            doWindowsSound()
+                        JOptionPane.showMessageDialog(
+                            this@PCScannerFrame,
+                            "No has seleccionado un archivo ejecutable",
+                            "Error al crear el programa",
+                            JOptionPane.ERROR_MESSAGE
+                        )
+                        return
+                    }
+                    if (nameTextField.text.isEmpty())
+                    {
+                        if (isWindows())
+                            doWindowsSound()
+                        JOptionPane.showMessageDialog(
+                            this@PCScannerFrame,
+                            "No has escrito un nombre",
+                            "Error al crear el programa",
+                            JOptionPane.ERROR_MESSAGE
+                        )
+                        return
+                    }
+                    var jsonArray = JSONArray()
+                    if (Files.exists(Paths.get("./programs.json")))
+                        jsonArray = JSONArray(String(Files.readAllBytes(Paths.get("./programs.json")), StandardCharsets.UTF_8))
+                    val jsonObject = JSONObject()
+                    jsonObject.put("ExecutablePath", chooser.selectedFile.absoluteFile)
+                    jsonObject.put("Name", nameTextField.text)
+                    jsonObject.put("Arguments", argumentsTextField.text)
+
+                    jsonArray.put(jsonObject)
+
+                    writeToFile("./programs.json", jsonArray.toString(2))
+                }
+            }
+
+        })
+        itemAddProgram.isOpaque = true
+        itemAddProgram.background = primaryColor
+        itemAddProgram.foreground = Color.WHITE
+        popupMenuOptions.add(itemAddProgram)
 
         val itemStartMinimized = object: JCheckBoxMenuItem("Lanzar la aplicación minimizada") {
             override fun processMouseEvent(evt: MouseEvent) {
@@ -656,29 +742,7 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
         val excludedPorts = JSONArray(this.thread.excludedPorts)
         obj.put("excludedPorts", excludedPorts)
 
-        val f = File("./config.json")
-        if (!f.exists())
-            f.createNewFile()
-        val fw = FileWriter(f)
-
-        try {
-            fw.write(obj.toString(2))
-        }
-        catch (e: IOException) {
-            e.printStackTrace()
-        }
-        catch (e: java.lang.Exception) {
-            e.printStackTrace()
-        }
-        finally {
-            try {
-                fw.flush()
-                fw.close()
-            }
-            catch (e: IOException) {
-                e.printStackTrace()
-            }
-        }
+        writeToFile("./config.json", obj.toString(2))
     }
 
     private fun readAndApplyConfig() {
@@ -702,6 +766,33 @@ class PCScannerFrame : JFrame(), SpawnServerThread.Listener {
             e.printStackTrace()
         } catch (e: IOException) {
             e.printStackTrace()
+        }
+    }
+
+    private fun writeToFile(fileName: String, text: String)
+    {
+        val f = File(fileName)
+        if (!f.exists())
+            f.createNewFile()
+        val fw = FileWriter(f)
+
+        try {
+            fw.write(text)
+        }
+        catch (e: IOException) {
+            e.printStackTrace()
+        }
+        catch (e: java.lang.Exception) {
+            e.printStackTrace()
+        }
+        finally {
+            try {
+                fw.flush()
+                fw.close()
+            }
+            catch (e: IOException) {
+                e.printStackTrace()
+            }
         }
     }
 }
